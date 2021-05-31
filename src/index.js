@@ -43,9 +43,14 @@ export default (WrappedComponent) => {
     onFullscreenPlayerDidDismiss = noop,
     muxOptions,
     progressUpdateInterval,
+    playerId = null,
+    onInit = null,
+    onDestroy = null,
     source,
     ...otherProps
   }, ref) => {
+    const externalPlayerId = playerId;
+
     const options = Object.assign({}, muxOptions);
     if (!options.application_name) {
       console.error('[mux-react-native-video] missing muxOptions.application_name - this value is required');
@@ -86,7 +91,11 @@ export default (WrappedComponent) => {
     };
 
     const _onEnd = evt => {
-      emit('ended');
+      if (onDestroy) {
+        onDestroy();
+      } else {
+        emit('ended');
+      }
       onEnd(evt);
     };
 
@@ -154,9 +163,10 @@ export default (WrappedComponent) => {
     };
 
     useEffect(() => {
-      const playerID = generateShortId();
+      const playerID = externalPlayerId || generateShortId();
 
       setState({ ...state, playerID });
+
       //
       // The callback below gets called when the component is unmounted,
       // and by that time the `state` and `state.playerID` have been cleaned
@@ -167,6 +177,11 @@ export default (WrappedComponent) => {
       const playerIDCopy = playerID;
 
       return () => {
+        if (onDestroy) {
+          onDestroy();
+          return;
+        }
+
         mux.emit(playerIDCopy, 'destroy');
         delete playerState.playerID;
       };
@@ -236,32 +251,39 @@ export default (WrappedComponent) => {
         options.platform.version = platformVersion;
       }
 
-      mux.init(playerID, options);
-      if (!didStartPaused) {
-        emitPlay();
+      if (onInit) {
+        onInit(options);
+      } else {
+        mux.init(playerID, options);
+        if (!didStartPaused) {
+          emitPlay();
+        }
       }
     }, [playerID]);
 
-    const sourceUri = source && source.uri;
-    useEffect(() => {
-      if (!sourceUri || !playerID) return;
-      
-      if (!getStateForPlayer(playerID, 'sourceUri')) {
-        // do not send a videochange event for the first source
-        saveStateForPlayer(playerID, 'sourceUri', sourceUri);
-        return;
-      }
+    // The event `videochange` create another session for the change.
+    /*
+      const sourceUri = source && source.uri;
+      useEffect(() => {
+        if (!sourceUri || !playerID) return;
 
-      saveStateForPlayer(playerID, 'sourceUri', sourceUri);
-      emit('videochange', {
-        video_id: options.data.video_id,
-        video_title: options.data.video_title,
-        video_series: options.data.video_series,
-        video_duration: options.data.video_duration,
-        video_stream_type: options.data.video_stream_type,
-        video_encoding_variant: options.data.video_encoding_variant,
-      });
-    }, [playerID, sourceUri]);
+        if (!getStateForPlayer(playerID, 'sourceUri')) {
+          // do not send a videochange event for the first source
+          saveStateForPlayer(playerID, 'sourceUri', sourceUri);
+          return;
+        }
+
+        saveStateForPlayer(playerID, 'sourceUri', sourceUri);
+        emit('videochange', {
+          video_id: options.data.video_id,
+          video_title: options.data.video_title,
+          video_series: options.data.video_series,
+          video_duration: options.data.video_duration,
+          video_stream_type: options.data.video_stream_type,
+          video_encoding_variant: options.data.video_encoding_variant,
+        });
+      }, [playerID, sourceUri]);
+    */
 
     return (
       <WrappedComponent
